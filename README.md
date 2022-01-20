@@ -19,6 +19,7 @@ provide your nft-store canister-id, and set into the TemplateNFT, yout nft-store
 ## Interface
 ### Must Interface
 ```shell
+TemplateNFT.mo
 /// @notice Transfer ownership of an NFT -- THE CALLER IS RESPONSIBLE
 /// @param _from The current owner of the NFT
 /// @param _to The new owner
@@ -70,10 +71,31 @@ public query func getAllNFT(user: Principal) : async [(TokenIndex, Principal)]
 /// @notice balanceOf get number of user nfts
 /// @return number
 public query func balanceOf(user: Principal) : async Nat
+
+MetaData.mo
+/// @notice upload Nft-Image to canister
+/// @param token_id & image blob data
+/// @return true if success, false otherwise
+public shared(msg) func uploadImage(token_id: Nat,tokenImage: Blob): async Bool
+
+/// @notice http_request display Nft-Photo/video
+/// @param request
+public query func http_request(request: HttpRequest) : async HttpResponse
+
+LedgerStorage.mo
+
+/// @notice addRecord add tx record into storage canister
+shared(msg) func addRecord(index: TokenIndex, op: Operation, from: ?Principal, to: ?Principal, price: ?Nat, timestamp: Time.Time) : async () 
+
+/// @notice addBuyRecord add buyRecord into storage canister
+public shared(msg) func addBuyRecord(index: TokenIndex, from: ?Principal, to: ?Principal,
+price: ?Nat, timestamp: Time.Time) : async ()
 ```
 
 ### Optioin Interface
 ```shell
+TemplateNFT.mo
+
 /// @notice mint mint nft to users
 /// @param mintRequest
 /// @return MintResponse
@@ -116,7 +138,7 @@ public shared(msg) func batchTransferFrom(from: Principal, tos: [Principal], tok
 https://opdit-ciaaa-aaaah-aa5ra-cai.ic0.app/#/index
 use WICP can guarantee the atomic transaction.
 
-* We put the account that receives the commission in the parameters of buyNow, that means all front-end trading markets can integrate this standard nft to earn commission fees.
+* We put the account that receives the commission in the parameters of buyNow, that means all front-end trading markets can integrate this standard nft to earn commission fees. and project can set royaltyfeeRatio to earn royalty fee at every transaction.
 
 
 ## Contract us

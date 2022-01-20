@@ -17,16 +17,33 @@ import Hash "mo:base/Hash";
 shared(msg) actor class MetaData(_owner: Principal) = this {
     type HttpRequest = Types.HttpRequest;
     type HttpResponse = Types.HttpResponse;
+    type Component = Types.Component;
+    type TokenIndex = Types.TokenIndex;
     type Result<T,E> = Result.Result<T,E>;
     type Image = Types.Image;
 
     private stable var owner : Principal = _owner;
     private stable var imageDatas: [var Types.Image] = Array.init<Types.Image>(10000, Blob.fromArray([]));
 
-    public shared(msg) func uploadImage(token_id: Nat,tokenImage: Blob): async Bool{
+    private stable var componentsEntries : [(TokenIndex, Component)] = [];
+    private var components = HashMap.HashMap<TokenIndex, Component>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
+
+    public shared(msg) func uploadImage(token_id: Nat,tokenImage: Blob): async Bool {
         assert(msg.caller == owner);
         imageDatas[token_id] := tokenImage;
         true
+    };
+
+    public shared(msg) func uploadComponents(components_data: [Component]): async Bool {
+        assert(msg.caller == owner);
+        for (data in components_data.vals()) {
+            components.put(data.nftId, data);
+        };
+        true
+    };
+
+    public query func getComponentByIndex(index: TokenIndex): async ?Component {
+        components.get(index)
     };
 
     public shared(msg) func deleteImage(token_id: Nat): async Bool{
@@ -45,7 +62,7 @@ shared(msg) actor class MetaData(_owner: Principal) = this {
         var nftData :Image = Blob.fromArray([]);
         let tokenId = Types.textToNat(path[1]);
 
-        if (path[0] == "token") {
+        if (path[0] == "nft") {
             nftData := imageDatas[tokenId];
         }else {assert(false)};
 

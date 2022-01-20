@@ -98,6 +98,15 @@ module Types = {
     #Other;
   }>;
 
+  public type Component = {
+    nftId: TokenIndex;
+    attr1: Nat;
+    attr2: Nat;
+    attr3: Nat;
+    attr4: Nat;
+    attr5: Text;
+  };
+
   public type LedgerStorageActor = actor {
     setFavorite : shared (user: Principal, info: CanvasIdentity) -> async ();
     cancelFavorite : shared (user: Principal, info: CanvasIdentity) -> async ();

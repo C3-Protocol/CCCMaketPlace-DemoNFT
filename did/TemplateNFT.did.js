@@ -82,12 +82,22 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getAllNftPhotoCanister' : IDL.Func([], [IDL.Principal], []),
+    'getAllStorageCanisterId' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Principal)],
+        ['query'],
+      ),
     'getApproved' : IDL.Func(
         [TokenIndex__1],
         [IDL.Opt(IDL.Principal)],
         ['query'],
       ),
     'getCycles' : IDL.Func([], [IDL.Nat], ['query']),
+    'getLastStorageCanisterId' : IDL.Func(
+        [],
+        [IDL.Opt(IDL.Principal)],
+        ['query'],
+      ),
     'getListings' : IDL.Func(
         [],
         [IDL.Vec(IDL.Tuple(NftPhotoStoreCID, Listings))],
@@ -98,7 +108,6 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Tuple(NftPhotoStoreCID, SoldListings))],
         ['query'],
       ),
-    'getStorageCanisterId' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
     'getWICPCanisterId' : IDL.Func([], [IDL.Principal], ['query']),
     'isApprovedForAll' : IDL.Func(
         [IDL.Principal, IDL.Principal],
@@ -115,6 +124,7 @@ export const idlFactory = ({ IDL }) => {
     'setFavorite' : IDL.Func([TokenIndex__1], [IDL.Bool], []),
     'setNftPhotoCanister' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'setOwner' : IDL.Func([IDL.Principal], [IDL.Bool], []),
+    'setRoyaltyfeeRatio' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'setStorageCanisterId' : IDL.Func([IDL.Opt(IDL.Principal)], [IDL.Bool], []),
     'setWICPCanisterId' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'transferFrom' : IDL.Func(
