@@ -52,6 +52,28 @@ module Types = {
     #Other;
   }>;
 
+  public type PreMint = {
+    user: Principal;
+    index: TokenIndex;
+  };
+
+  public type MintRecord = {
+    index: Nat;
+    record: OpRecord;
+  };
+
+  public type MintResponse = Result.Result<[CanvasIdentity], {
+    #Unauthorized;
+    #LessThanFee;
+    #InsufficientBalance;
+    #AllowedInsufficientBalance;
+    #Other;
+    #SoldOut;
+    #NotOpen;
+    #NotEnoughToMint;
+    #NotWhiteListOrMaximum;
+  }>;
+
   public type ListRequest = {
     tokenIndex : TokenIndex;
     price : Nat;
@@ -114,6 +136,7 @@ module Types = {
         price: ?Nat, timestamp: Time.Time) -> async ();
     addBuyRecord : shared (index: TokenIndex, from: ?Principal, to: ?Principal, 
         price: ?Nat, timestamp: Time.Time) -> async ();
+    addRecords : shared (records: [MintRecord]) -> async ();
   };
 
   public module TokenIndex = {

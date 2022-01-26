@@ -13,12 +13,14 @@ import Principal "mo:base/Principal";
 import Int "mo:base/Int";
 import Float "mo:base/Float";
 import Nat "mo:base/Nat";
+import Nat32 "mo:base/Nat32";
 import Bool "mo:base/Bool";
 import HashMap "mo:base/HashMap";
 import Option "mo:base/Option";
 import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import Time "mo:base/Time";
+import Char "mo:base/Char";
 import List "mo:base/List";
 import Cycles "mo:base/ExperimentalCycles";
 
@@ -42,6 +44,9 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     type BuyRequest = Types.BuyRequest;
     type StorageActor = Types.LedgerStorageActor;
     type NftPhotoStoreCID = Types.CanvasIdentity;
+    type PreMint = Types.PreMint;
+    type MintRecord = Types.MintRecord;
+    type MintResponse = Types.MintResponse;
 
     private stable var supply : Balance  = 5000; //according to your project
     private stable var name : Text  = "Crazy Zombie"; //according to your project
@@ -50,7 +55,8 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     private stable var WICPCanisterActor: WICPActor = actor("7xlb5-raaaa-aaaai-qa2ja-cai");
 
     private stable var cyclesCreateCanvas: Nat = Types.CREATECANVAS_CYCLES;
-    
+
+    private stable var mintAccount : Balance  = 0;
     //nft store canister-id, provide https_request to show yout nft-photo/nft-video
     //you also can provide use this canister, but suggest use another canister
     private stable var nftStoreCID : Principal = Principal.fromText("h6zkn-2aaaa-aaaah-qciaa-cai");
@@ -77,11 +83,19 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     private var operatorApprovals = HashMap.HashMap<Principal, HashMap.HashMap<Principal, Bool>>(1, Principal.equal, Principal.hash);
     private stable var dataUser : Principal = Principal.fromText("umgol-annoi-q7dqt-qbsw6-a2pww-eitzs-6vi5t-efaz6-xquey-5jmut-sqe");
 
+     // Mapping from NFT canister ID to approved address
+    private stable var availableEntries : [(TokenIndex, Bool)] = [];
+    private var availableMint = HashMap.HashMap<TokenIndex, Bool>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
+
+    private stable var mintPrice : Balance  = 200_000_000;
+
     system func preupgrade() {
         listingsEntries := Iter.toArray(listings.entries());
         soldListingsEntries := Iter.toArray(soldListings.entries());
         balancesEntries := Iter.toArray(balances.entries());
         ownersEntries := Iter.toArray(owners.entries());
+
+        availableEntries := Iter.toArray(availableMint.entries());
     };
 
     system func postupgrade() {
@@ -89,11 +103,13 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         owners := HashMap.fromIter<TokenIndex, Principal>(ownersEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
         listings := HashMap.fromIter<TokenIndex, Listings>(listingsEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
         soldListings := HashMap.fromIter<TokenIndex, SoldListings>(soldListingsEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
-        
+        availableMint := HashMap.fromIter<TokenIndex, Bool>(availableEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+
         listingsEntries := [];
         soldListingsEntries := [];
         balancesEntries := [];
         ownersEntries := [];
+        availableEntries := [];
     };
 
     /*
@@ -193,16 +209,80 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
 
     /*
     publicSell interface, accroding to your nft project logic
+    this is a example
     */
-    public shared(msg) func pubSell(): async Bool {
-        true
+    public shared(msg) func preMint(preMintArr: [PreMint]) : async Bool {
+        assert(msg.caller == owner);
+        var records: [MintRecord] = [];
+        for(v in preMintArr.vals()){
+            let rec: MintRecord = {
+                index = v.index;
+                record = {op = #Mint; from = null; to = ?v.user; price = null; timestamp = Time.now();};
+            };
+            records := Array.append(records, [rec]);
+            owners.put(v.index, v.user);
+        };
+        switch(_getStorageCanisterId()){
+            case(?s){
+                let storageA: StorageActor = actor(Principal.toText(s));
+                ignore storageA.addRecords(records);
+            };
+            case _ {};
+        };
+        return true;
     };
 
     /*
     mint interface, accroding to your nft project logic
+    this is a simple example, sell nft
     */
-    public shared(msg) func mint(mintRequest: [MintRequest]): async Bool {
-        true
+    public shared(msg) func mint(amount: Nat) : async MintResponse {
+        assert(amount > 0);
+        if(mintAccount >= supply){ return #err(#SoldOut); };
+        if(mintAccount + amount > supply){ return #err(#NotEnoughToMint); };
+
+        let tokenIndexArr = randomNfts(amount, msg.caller);
+        if(tokenIndexArr.size() == 0){ return #err(#SoldOut); };
+
+        let transferResult = await WICPCanisterActor.transferFrom(msg.caller, royaltyfeeTo, mintPrice * tokenIndexArr.size());
+        switch(transferResult){
+            case(#ok(b)) {};
+            case(#err(errText)){
+                for(v in tokenIndexArr.vals()){
+                    availableMint.put(v, true);
+                };
+                return #err(errText);
+            };
+        };
+
+        var records: [MintRecord] = [];
+        var idArr: [NftPhotoStoreCID] = [];
+
+        for(v in tokenIndexArr.vals()){
+            let rec: MintRecord = {
+                index = v;
+                record = {op = #Mint; from = null; to = ?msg.caller; price = null; timestamp = Time.now();};
+            };
+            let zombieId: NftPhotoStoreCID = { 
+                index=v; 
+                canisterId=nftStoreCID;
+            };
+            
+            records := Array.append(records, [rec]);
+            idArr := Array.append(idArr, [zombieId]);
+            owners.put(v, msg.caller);
+        };
+        balances.put( msg.caller, _balanceOf(msg.caller) + tokenIndexArr.size() );
+        mintAccount += tokenIndexArr.size();
+        switch(_getStorageCanisterId()){
+            case(?s){
+                let storageA: StorageActor = actor(Principal.toText(s));
+                ignore storageA.addRecords(records);
+            };
+            case _ {};
+        };
+
+        return #ok(idArr);
     };
 
     //transferFrom
@@ -496,6 +576,56 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
             else if (x.0 == y.0) { #equal }
             else { #greater }
         })
+    };
+
+    public shared(msg) func proAvailableMint() : async Bool {
+        assert(msg.caller == owner);
+        availableMint := HashMap.HashMap<TokenIndex, Bool>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
+        for(i in Iter.range(0,4999)){
+            if(Option.isNull(owners.get(i))){
+                availableMint.put(i, true);
+            };
+        };
+        return true;
+    };
+
+    public query func getAvailableMint() : async [(TokenIndex, Bool)] {
+        Iter.toArray(availableMint.entries())
+    };
+
+
+    private func getSeedFromCaller( user : Principal) : Nat {
+        
+        let chars = Principal.toText(user).chars();
+
+        var num : Nat32 = 0;
+        label outer for (v in chars){
+            if(v == '-'){
+                break outer;
+            };
+            let charToNum = Char.toNat32(v);
+            num += charToNum;        
+        };
+        Nat32.toNat(num)
+    };
+
+    private func randomNfts(mintAmount: Nat, user : Principal) : [Nat] {
+        var ret: [Nat] = [];
+
+        let seed = Int.abs(Time.now()) + getSeedFromCaller(user);
+        let arr = Iter.toArray(availableMint.entries());
+        if(arr.size() < mintAmount){
+            return ret;
+        };
+        for(i in Iter.range(0, mintAmount-1)){
+            var lotteryIndex = ( seed/(i+1)) % arr.size();
+            while( Option.isSome(Array.find<Nat>(ret, func(v) {v == arr[lotteryIndex].0})) ){
+                lotteryIndex := (lotteryIndex + 1) % arr.size();
+            };
+            availableMint.delete(arr[lotteryIndex].0);
+            ret := Array.append(ret, [arr[lotteryIndex].0]);
+        };
+        return ret;
     };
 
     private func _balanceOf(owner: Principal): Nat {
