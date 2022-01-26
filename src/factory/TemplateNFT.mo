@@ -52,14 +52,14 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     private stable var name : Text  = "Crazy Zombie"; //according to your project
 
     private stable var owner: Principal = owner_;
-    private stable var WICPCanisterActor: WICPActor = actor("7xlb5-raaaa-aaaai-qa2ja-cai");
+    private stable var WICPCanisterActor: WICPActor = actor("xxxxx-xxxxx-xxxxx-xxxxx-xxx");
 
     private stable var cyclesCreateCanvas: Nat = Types.CREATECANVAS_CYCLES;
 
     private stable var mintAccount : Balance  = 0;
     //nft store canister-id, provide https_request to show yout nft-photo/nft-video
     //you also can provide use this canister, but suggest use another canister
-    private stable var nftStoreCID : Principal = Principal.fromText("h6zkn-2aaaa-aaaah-qciaa-cai");
+    private stable var nftStoreCID : Principal = Principal.fromText("xxxxx-xxxxx-xxxxx-xxxxx-xxx");
     private stable var storageCanister : List.List<Principal> = List.nil<Principal>();
     private stable var royaltyfeeTo : Principal = royaltyfeeto_;
     private stable var royaltyfeeRatio : Nat = 2;
