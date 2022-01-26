@@ -78,11 +78,6 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     private stable var ownersEntries : [(TokenIndex, Principal)] = [];
     private var owners = HashMap.HashMap<TokenIndex, Principal>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
 
-    private var nftApprovals = HashMap.HashMap<TokenIndex, Principal>(1, Types.TokenIndex.equal, Types.TokenIndex.hash);
-    // Mapping from owner to operator approvals
-    private var operatorApprovals = HashMap.HashMap<Principal, HashMap.HashMap<Principal, Bool>>(1, Principal.equal, Principal.hash);
-    private stable var dataUser : Principal = Principal.fromText("umgol-annoi-q7dqt-qbsw6-a2pww-eitzs-6vi5t-efaz6-xquey-5jmut-sqe");
-
      // Mapping from NFT canister ID to approved address
     private stable var availableEntries : [(TokenIndex, Bool)] = [];
     private var availableMint = HashMap.HashMap<TokenIndex, Bool>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
@@ -290,7 +285,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         if(Option.isSome(listings.get(tokenIndex))){
             return #err(#ListOnMarketPlace);
         };
-        if( not _isApprovedOrOwner(from, msg.caller, tokenIndex) ){
+        if( not _checkOwner(tokenIndex, from) ){
             return #err(#NotOwnerOrNotApprove);
         };
         if(from == to){
@@ -320,7 +315,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
             if(Option.isSome(listings.get(v))){
                 return #err(#ListOnMarketPlace);
             };
-            if( not _isApprovedOrOwner(from, msg.caller, v) ){
+            if( not _checkOwner(v, from) ){
                 return #err(#NotOwnerOrNotApprove);
             };
         };
@@ -328,33 +323,6 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
             _transfer(from, tos[i], tokenIndexs[i]);
         };
         return #ok(tokenIndexs[0]);
-    };
-
-    //approve
-    public shared(msg) func approve(approve: Principal, tokenIndex: TokenIndex): async Bool{
-        let ow = switch(_ownerOf(tokenIndex)){
-            case(?o){o};
-            case _ {return false;};
-        };
-        if(ow != msg.caller){return false;};
-        nftApprovals.put(tokenIndex, approve);
-        return true;
-    };
-
-    public shared(msg) func setApprovalForAll(operatored: Principal, approved: Bool): async Bool{
-        assert(msg.caller != operatored);
-        switch(operatorApprovals.get(msg.caller)){
-            case(?op){
-                op.put(operatored, approved);
-                operatorApprovals.put(msg.caller, op);
-            };
-            case _ {
-                var temp = HashMap.HashMap<Principal, Bool>(1, Principal.equal, Principal.hash);
-                temp.put(operatored, approved);
-                operatorApprovals.put(msg.caller, temp);
-            };
-        };
-        return true;
     };
 
     //list on marketplace
@@ -539,14 +507,6 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         listings.get(index)
     };
 
-    public query func getApproved(tokenIndex: TokenIndex) : async ?Principal {
-        nftApprovals.get(tokenIndex)
-    };
-
-    public query func isApprovedForAll(owner: Principal, operatored: Principal) : async Bool {
-        _checkApprovedForAll(owner, operatored)
-    };
-
     public query func ownerOf(tokenIndex: TokenIndex) : async ?Principal {
         _ownerOf(tokenIndex)
     };
@@ -638,7 +598,6 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     private func _transfer(from: Principal, to: Principal, tokenIndex: TokenIndex) {
         balances.put( from, _balanceOf(from) - 1 );
         balances.put( to, _balanceOf(to) + 1 );
-        nftApprovals.delete(tokenIndex);
         owners.put(tokenIndex, to);
     };
 
@@ -678,35 +637,5 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
             };
             case _ {false};
         }
-    };
-
-    private func _checkApprove(tokenIndex: TokenIndex, approved: Principal) : Bool {
-        switch(nftApprovals.get(tokenIndex)){
-            case (?o){
-                if(o == approved){
-                    true
-                }else{
-                    false
-                }
-            };
-            case _ {false};
-        }
-    };
-
-    private func _checkApprovedForAll(owner: Principal, operatored: Principal) : Bool {
-        switch(operatorApprovals.get(owner)){
-            case (?a){
-                switch(a.get(operatored)){
-                    case (?b){b};
-                    case _ {false};
-                }
-            };
-            case _ {false};
-        }
-    };
-
-    private func _isApprovedOrOwner(from: Principal, spender: Principal, tokenIndex: TokenIndex) : Bool {
-        _checkOwner(tokenIndex, from) and (_checkOwner(tokenIndex, spender) or 
-        _checkApprove(tokenIndex, spender) or _checkApprovedForAll(from, spender))
     };
 }
