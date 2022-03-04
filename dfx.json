@@ -1,15 +1,15 @@
 {
   "canisters": {
     "TemplateNFT": {
-      "main": "src/factory/TemplateNFT.mo",
+      "main": "src/factory/NFT.mo",
       "type": "motoko"
     },
     "MetaData": {
-      "main": "src/metadata/metaData.mo",
+      "main": "src/metadata/nftMetaData.mo",
       "type": "motoko"
     },
-    "LedgerStorage": {
-      "main": "src/storage/LedgerStorage.mo",
+    "Storage": {
+      "main": "src/storage/storage.mo",
       "type": "motoko"
     }
   },

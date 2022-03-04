@@ -1,5 +1,5 @@
 /**
- * Module     : TemplateNFT.mo
+ * Module     : NFT.mo
  * Copyright  : 2021 CCC Team
  * License    : Apache 2.0 with LLVM Exception
  * Maintainer : CCC Team - Leven
@@ -7,8 +7,9 @@
  */
 
 import WICP "../common/WICP";
+import NFTTypes "../common/nftTypes";
 import Types "../common/types";
-import LedgerStorage "../storage/LedgerStorage";
+import Storage "../storage/storage";
 import Principal "mo:base/Principal";
 import Int "mo:base/Int";
 import Float "mo:base/Float";
@@ -27,7 +28,7 @@ import Cycles "mo:base/ExperimentalCycles";
 /**
  * Factory Canister to Create Canvas Canister
  */
-shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principal) = this {
+shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMintfeeTo_: Principal, wicpCanisterId_: Principal) = this {
 
     type WICPActor = WICP.WICPActor;
     type TokenIndex = Types.TokenIndex;
@@ -42,27 +43,45 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     type OpRecord = Types.OpRecord;
     type Operation = Types.Operation;
     type BuyRequest = Types.BuyRequest;
-    type StorageActor = Types.LedgerStorageActor;
+    type StorageActor = Types.StorageActor;
     type NftPhotoStoreCID = Types.CanvasIdentity;
     type PreMint = Types.PreMint;
     type MintRecord = Types.MintRecord;
     type MintResponse = Types.MintResponse;
+    type AirDropResponse = Types.AirDropResponse;
+    type AirDropStruct = Types.AirDropStruct;
 
-    private stable var supply : Balance  = 5000; //according to your project
-    private stable var name : Text  = "Crazy Zombie"; //according to your project
+    type Component = NFTTypes.Component;
+    type NFTMetaData = NFTTypes.NFTMetaData;
+    type TokenDetails = NFTTypes.TokenDetails;
+    type GetTokenResponse = NFTTypes.GetTokenResponse;
+
+    private stable var supply : Balance  = 10000; //according to your project
+    private stable var name : Text  = "XXXXXXX"; //according to your project
 
     private stable var owner: Principal = owner_;
-    private stable var WICPCanisterActor: WICPActor = actor("xxxxx-xxxxx-xxxxx-xxxxx-xxx");
+    private stable var WICPCanisterActor: WICPActor = actor(Principal.toText(wicpCanisterId_));
 
     private stable var cyclesCreateCanvas: Nat = Types.CREATECANVAS_CYCLES;
 
     private stable var mintAccount : Balance  = 0;
     //nft store canister-id, provide https_request to show yout nft-photo/nft-video
     //you also can provide use this canister, but suggest use another canister
-    private stable var nftStoreCID : Principal = Principal.fromText("xxxxx-xxxxx-xxxxx-xxxxx-xxx");
+    private stable var nftStoreCID : [Principal] = [];  //store nft photo. if all nft photo too larget. can store in serval canister
     private stable var storageCanister : List.List<Principal> = List.nil<Principal>();
     private stable var royaltyfeeTo : Principal = royaltyfeeto_;
+    private stable var cccMintfeeTo : Principal = cccMintfeeTo_;
     private stable var royaltyfeeRatio : Nat = 2;
+    private stable var mintfeeRatio : Nat = 2;
+
+    private stable var componentsEntries : [(Nat, Component)] = [];
+    private var components = HashMap.HashMap<TokenIndex, Component>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
+
+    private stable var tokensEntries : [(Nat, NFTMetaData)] = [];
+    private var tokens = HashMap.HashMap<TokenIndex, NFTMetaData>(1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+
+    private stable var airDropEntries : [(Principal, Nat)] = [];
+    private var airDrop = HashMap.HashMap<Principal, Nat>(1, Principal.equal, Principal.hash);
 
     private stable var listingsEntries : [(TokenIndex, Listings)] = [];
     private var listings = HashMap.HashMap<TokenIndex, Listings>(1, Types.TokenIndex.equal, Types.TokenIndex.hash);
@@ -82,15 +101,18 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     private stable var availableEntries : [(TokenIndex, Bool)] = [];
     private var availableMint = HashMap.HashMap<TokenIndex, Bool>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
 
-    private stable var mintPrice : Balance  = 200_000_000;
+    private stable var mintPrice : Balance  = 200_000_000;//example
 
     system func preupgrade() {
+        componentsEntries := Iter.toArray(components.entries());
+        tokensEntries := Iter.toArray(tokens.entries());
+
         listingsEntries := Iter.toArray(listings.entries());
         soldListingsEntries := Iter.toArray(soldListings.entries());
         balancesEntries := Iter.toArray(balances.entries());
         ownersEntries := Iter.toArray(owners.entries());
-
         availableEntries := Iter.toArray(availableMint.entries());
+        airDropEntries := Iter.toArray(airDrop.entries());
     };
 
     system func postupgrade() {
@@ -99,12 +121,103 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         listings := HashMap.fromIter<TokenIndex, Listings>(listingsEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
         soldListings := HashMap.fromIter<TokenIndex, SoldListings>(soldListingsEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
         availableMint := HashMap.fromIter<TokenIndex, Bool>(availableEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+        tokens := HashMap.fromIter<TokenIndex, NFTMetaData>(tokensEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+        components := HashMap.fromIter<TokenIndex, Component>(componentsEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+        airDrop := HashMap.fromIter<Principal, Nat>(airDropEntries.vals(), 1, Principal.equal, Principal.hash);
 
+        airDropEntries := [];
+        tokensEntries := [];
+        componentsEntries := [];
         listingsEntries := [];
         soldListingsEntries := [];
         balancesEntries := [];
         ownersEntries := [];
         availableEntries := [];
+    };
+
+    private func _checkUsr(usr: Principal) : Bool {
+        usr == owner
+    };
+
+    //upload all nft metadata
+    public shared(msg) func uploadNftMetaData(tokenInfo: [NFTMetaData]): async Bool {
+        assert(_checkUsr(msg.caller));
+        for (value in tokenInfo.vals()) {
+            tokens.put(value.id, value);
+        };
+        true
+    };
+
+    public shared(msg) func getAllTokens(): async [(TokenIndex, NFTMetaData)] {
+        assert(_checkUsr(msg.caller));
+        Iter.toArray(tokens.entries())
+    };
+
+    //upload all Components
+    public shared(msg) func uploadComponents(components_data: [Component]): async Bool {
+        assert(_checkUsr(msg.caller));
+        for (data in components_data.vals()) {
+            components.put(data.id, data);
+        };
+        true
+    };
+
+    public query func getComponentsSize(): async Nat {
+        components.size()
+    };
+
+    public query func getComponentById(index: TokenIndex): async ?Component {
+        components.get(index)
+    };
+
+    public query func getTokenById(tokenId:Nat): async GetTokenResponse{
+        let token = switch(tokens.get(tokenId)){
+            case (?t){t};
+            case _ {return #err(#NotFoundIndex);};
+        };
+        let attr1 = switch(components.get(token.attr1)){
+            case (?b) {b.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+        let attr2 = switch(components.get(token.attr2)){
+            case (?l) {l.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+        let attr3 = switch(components.get(token.attr3)){
+            case (?a) {a.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+        let attr4 = switch(components.get(token.attr4)){
+            case (?a) {a.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+
+        let attr5 = switch(components.get(token.attr5)){
+            case (?m) {m.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+
+        let attr6 = switch(components.get(token.attr6)){
+            case (?e) {e.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+
+        let attr7 = switch(components.get(token.attr7)){
+            case (?e) {e.attribute};
+            case _ {return #err(#NotFoundIndex);};
+        };
+
+        let tokenDetail : TokenDetails = {
+                id = token.id;
+                attr1 = attr1;
+                attr2 = attr2;
+                attr3 = attr3;
+                attr4 = attr4;
+                attr5 = attr5;
+                attr6 = attr6;
+                attr7 = attr7;
+        };
+        #ok(tokenDetail)
     };
 
     /*
@@ -122,6 +235,12 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     public shared(msg) func setRoyaltyfeeRatio(newfeeRatio: Nat) : async Bool {
         assert(msg.caller == owner and newfeeRatio < 3);
         royaltyfeeRatio := newfeeRatio;
+        return true;
+    };
+
+    public shared(msg) func setMintFeeRatio(newfeeRatio: Nat) : async Bool {
+        assert(msg.caller == owner and newfeeRatio < 3);
+        mintfeeRatio := newfeeRatio;
         return true;
     };
 
@@ -143,7 +262,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     public shared(msg) func newStorageCanister(owner: Principal) : async Bool {
         assert(msg.caller == owner);
         Cycles.add(cyclesCreateCanvas);
-        let storage = await LedgerStorage.LedgerStorage(owner);
+        let storage = await Storage.Storage(owner);
         let canvasCid = Principal.fromActor(storage);
         storageCanister := List.push(canvasCid, storageCanister);
         return true;
@@ -154,13 +273,13 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     than web-front can call https_request to show your nft-photo/nft-video
     if you have many store, nftStoreCID can be a Array
     */
-    public shared(msg) func setNftPhotoCanister(storeCID: Principal) : async Bool {
+    public shared(msg) func setNftPhotoCanister(storeCID: [Principal]) : async Bool {
         assert(msg.caller == owner_);
         nftStoreCID := storeCID;
         return true;
     };
 
-    public shared(msg) func getAllNftPhotoCanister() : async Principal {
+    public shared(msg) func getAllNftPhotoCanister() : async [Principal] {
         assert(msg.caller == owner_);
         nftStoreCID
     };
@@ -171,7 +290,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
                 let storageA: StorageActor = actor(Principal.toText(s));
                 let info: NftPhotoStoreCID = { 
                     index=tokenIndex; 
-                    canisterId=nftStoreCID;
+                    canisterId=nftStoreCID[0];//need do some calculate if photo store more than one canister
                 };
                 ignore storageA.setFavorite(msg.caller, info);
             };
@@ -186,7 +305,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
                 let storageA: StorageActor = actor(Principal.toText(s));
                 let info: NftPhotoStoreCID = { 
                     index=tokenIndex; 
-                    canisterId=nftStoreCID;
+                    canisterId=nftStoreCID[0];//need do some calculate if photo store more than one canister
                 };
                 ignore storageA.cancelFavorite(msg.caller, info);
             };
@@ -195,27 +314,99 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         return true;
     };
 
+    private func randomNft(user : Principal) : Nat {
+        let randomNum = genRandomNum(user);
+        let arr = Iter.toArray(availableMint.entries());
+        var lotteryIndex = randomNum % arr.size();
+        while(Option.isSome(owners.get(arr[lotteryIndex].0))){
+            lotteryIndex := (lotteryIndex + 1) % arr.size();
+        };
+        return arr[lotteryIndex].0;
+    };
+    
     /*
     airdrop interface, accroding to your nft project logic
     */
-    public shared(msg) func airDrop(): async Bool {
-        true
+    public shared(msg) func cliamAirdrop() : async AirDropResponse {
+        let remain = switch(airDrop.get(msg.caller)){
+            case (?a){a};
+            case _ {return #err(#NotInAirDropListOrAlreadyCliam);};
+        };
+        if(remain == 0){
+            return #err(#AlreadyCliam);
+        };
+        if(availableMint.size() == 0){
+            return #err(#AlreadyCliam);
+        };
+        let tokenIndex = randomNft(msg.caller);
+        owners.put(tokenIndex, msg.caller);
+        balances.put( msg.caller, _balanceOf(msg.caller) + 1 );
+        availableMint.delete(tokenIndex);
+        switch(_getStorageCanisterId()){
+            case(?s){
+                let storageA: StorageActor = actor(Principal.toText(s));
+                ignore storageA.addRecord(tokenIndex, #Mint, null, ?msg.caller, null, Time.now());
+            };
+            case _ {};
+        };
+        if(remain == 1){
+            airDrop.delete(msg.caller);
+        }else if (remain > 1){
+            airDrop.put(msg.caller,remain - 1);
+        };
+        let info: NftPhotoStoreCID = { 
+            index=tokenIndex; 
+            canisterId=nftStoreCID[0];
+        };
+        return #ok(info);
+    };
+
+
+    public shared(msg) func uploadAirDropList(airDropList: [AirDropStruct]) : async Bool {
+        assert(msg.caller == owner);
+        for(value in airDropList.vals()){
+            switch(airDrop.get(value.user)){
+                case (?n){
+                    airDrop.put(value.user, n + value.remainTimes);
+                };
+                case _ {airDrop.put(value.user, value.remainTimes);}
+            }
+        };
+        return true;
+    };
+
+    public shared(msg) func clearAirDrop() : async Bool {
+        assert(msg.caller == owner);
+        airDrop := HashMap.HashMap<Principal, Nat>(0, Principal.equal, Principal.hash);
+        return true;
+    };
+
+    public shared(msg) func deleteAirDrop(user: Principal) : async Bool {
+        assert(msg.caller == owner);
+        airDrop.delete(user);
+        return true;
     };
 
     /*
-    publicSell interface, accroding to your nft project logic
+    preMint interface, accroding to your nft project logic
     this is a example
     */
-    public shared(msg) func preMint(preMintArr: [PreMint]) : async Bool {
+    public shared(msg) func preMint(preMintArr: [PreMint]) : async Nat {
         assert(msg.caller == owner);
         var records: [MintRecord] = [];
+        var totalMint = 0;
         for(v in preMintArr.vals()){
-            let rec: MintRecord = {
-                index = v.index;
-                record = {op = #Mint; from = null; to = ?v.user; price = null; timestamp = Time.now();};
+            if(Option.isNull(owners.get(v.index))){
+                let rec: MintRecord = {
+                    index = v.index;
+                    record = {op = #Mint; from = null; to = ?v.user; price = null; timestamp = Time.now();};
+                };
+                records := Array.append(records, [rec]);
+                owners.put(v.index, v.user);
+                balances.put( v.user, _balanceOf(v.user) + 1 );
+                availableMint.delete(v.index);
+                totalMint += 1;
             };
-            records := Array.append(records, [rec]);
-            owners.put(v.index, v.user);
         };
         switch(_getStorageCanisterId()){
             case(?s){
@@ -224,7 +415,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
             };
             case _ {};
         };
-        return true;
+        return totalMint;
     };
 
     /*
@@ -239,7 +430,20 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         let tokenIndexArr = randomNfts(amount, msg.caller);
         if(tokenIndexArr.size() == 0){ return #err(#SoldOut); };
 
-        let transferResult = await WICPCanisterActor.transferFrom(msg.caller, royaltyfeeTo, mintPrice * tokenIndexArr.size());
+        let totalPrice = mintPrice * tokenIndexArr.size();
+        var tos: [Principal] = [];
+        var values: [Nat] = [];
+
+        let mintFee:Nat = Nat.div(Nat.mul(totalPrice, mintfeeRatio), 100);
+        let value = totalPrice - mintFee;
+
+        tos := Array.append(tos, [cccMintfeeTo]);
+        tos := Array.append(tos, [royaltyfeeTo]);
+        
+        values := Array.append(values, [mintFee]);
+        values := Array.append(values, [value]);
+
+        let transferResult = await WICPCanisterActor.batchTransferFrom(msg.caller, tos, values);
         switch(transferResult){
             case(#ok(b)) {};
             case(#err(errText)){
@@ -258,13 +462,13 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
                 index = v;
                 record = {op = #Mint; from = null; to = ?msg.caller; price = null; timestamp = Time.now();};
             };
-            let zombieId: NftPhotoStoreCID = { 
+            let nftStoreCid: NftPhotoStoreCID = { 
                 index=v; 
-                canisterId=nftStoreCID;
+                canisterId=nftStoreCID[0];//need do some calculate if photo store more than one canister
             };
             
             records := Array.append(records, [rec]);
-            idArr := Array.append(idArr, [zombieId]);
+            idArr := Array.append(idArr, [nftStoreCid]);
             owners.put(v, msg.caller);
         };
         balances.put( msg.caller, _balanceOf(msg.caller) + tokenIndexArr.size() );
@@ -404,7 +608,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
 
     //buyNow
     public shared(msg) func buyNow(buyRequest: BuyRequest): async BuyResponse {
-        assert(buyRequest.marketFeeRatio < 5);
+        assert(buyRequest.marketFeeRatio < 4);
         let orderInfo = switch(listings.get(buyRequest.tokenIndex)){
             case (?l){l};
             case _ {return #err(#NotFoundIndex);};
@@ -482,7 +686,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         for((k,v) in listings.entries()){
             let identity:NftPhotoStoreCID = {
                 index = k;
-                canisterId = nftStoreCID;
+                canisterId = nftStoreCID[0];//need do some calculate if photo store more than one canister
             };
             ret := Array.append(ret, [(identity, v)]);
         };
@@ -496,7 +700,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         for((k,v) in soldListings.entries()){
             let identity:NftPhotoStoreCID = {
                 index = k;
-                canisterId = nftStoreCID;
+                canisterId = nftStoreCID[0];//need do some calculate if photo store more than one canister
             };
             ret := Array.append(ret, [(identity, v)]);
         };
@@ -528,7 +732,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
         var ret: [(TokenIndex, Principal)] = [];
         for((k,v) in owners.entries()){
             if(v == user){
-                ret := Array.append(ret, [ (k, nftStoreCID) ] );
+                ret := Array.append(ret, [ (k, nftStoreCID[0]) ] );//need do some calculate if photo store more than one canister
             };
         };
         Array.sort(ret, func (x : (TokenIndex, Principal), y : (TokenIndex, Principal)) : { #less; #equal; #greater } {
@@ -554,7 +758,7 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
     };
 
 
-    private func getSeedFromCaller( user : Principal) : Nat {
+    private func genRandomNum( user : Principal) : Nat {
         
         let chars = Principal.toText(user).chars();
 
@@ -566,13 +770,13 @@ shared(msg)  actor class TemplateNFT (owner_: Principal, royaltyfeeto_: Principa
             let charToNum = Char.toNat32(v);
             num += charToNum;        
         };
-        Nat32.toNat(num)
+        Nat32.toNat(num) + Int.abs(Time.now())
     };
 
     private func randomNfts(mintAmount: Nat, user : Principal) : [Nat] {
         var ret: [Nat] = [];
 
-        let seed = Int.abs(Time.now()) + getSeedFromCaller(user);
+        let seed = genRandomNum(msg.caller);
         let arr = Iter.toArray(availableMint.entries());
         if(arr.size() < mintAmount){
             return ret;

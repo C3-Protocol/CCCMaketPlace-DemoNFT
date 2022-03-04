@@ -16,7 +16,7 @@ import Time "mo:base/Time";
 import Types "../common/types";
 import Cycles "mo:base/ExperimentalCycles";
 
-shared(msg) actor class LedgerStorage(_owner: Principal) {
+shared(msg) actor class Storage(_owner: Principal) {
     type OpRecord = Types.OpRecord;
     type Operation = Types.Operation;
     type TokenIndex = Types.TokenIndex;

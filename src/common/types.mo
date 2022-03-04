@@ -129,7 +129,17 @@ module Types = {
     attr5: Text;
   };
 
-  public type LedgerStorageActor = actor {
+  public type AirDropStruct = {
+    user: Principal;
+    remainTimes: Nat;
+  };
+  
+  public type AirDropResponse = Result.Result<CanvasIdentity, {
+    #NotInAirDropListOrAlreadyCliam;
+    #AlreadyCliam;
+  }>;
+
+  public type StorageActor = actor {
     setFavorite : shared (user: Principal, info: CanvasIdentity) -> async ();
     cancelFavorite : shared (user: Principal, info: CanvasIdentity) -> async ();
     addRecord : shared (index: TokenIndex, op: Operation, from: ?Principal, to: ?Principal, 
