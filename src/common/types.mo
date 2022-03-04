@@ -52,6 +52,11 @@ module Types = {
     #Other;
   }>;
 
+  public type DisCountStruct = {
+    user: Principal;
+    disCount: Nat;
+  };
+
   public type PreMint = {
     user: Principal;
     index: TokenIndex;

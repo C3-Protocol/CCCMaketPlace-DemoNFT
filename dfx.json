@@ -1,10 +1,10 @@
 {
   "canisters": {
-    "TemplateNFT": {
+    "eNFT": {
       "main": "src/factory/NFT.mo",
       "type": "motoko"
     },
-    "MetaData": {
+    "nftMetaData": {
       "main": "src/metadata/nftMetaData.mo",
       "type": "motoko"
     },

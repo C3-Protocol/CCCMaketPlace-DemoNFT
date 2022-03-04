@@ -46,6 +46,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     type StorageActor = Types.StorageActor;
     type NftPhotoStoreCID = Types.CanvasIdentity;
     type PreMint = Types.PreMint;
+    type DisCountStruct = Types.DisCountStruct;
     type MintRecord = Types.MintRecord;
     type MintResponse = Types.MintResponse;
     type AirDropResponse = Types.AirDropResponse;
@@ -58,6 +59,8 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
 
     private stable var supply : Balance  = 10000; //according to your project
     private stable var name : Text  = "XXXXXXX"; //according to your project
+    private stable var openTime: Time.Time = 1_738_506_142_000_000_000; //default set a far time 2025/02/02 22:22:22
+    private stable var mintPrice : Balance  = 200_000_000;//example
 
     private stable var owner: Principal = owner_;
     private stable var WICPCanisterActor: WICPActor = actor(Principal.toText(wicpCanisterId_));
@@ -83,6 +86,9 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     private stable var airDropEntries : [(Principal, Nat)] = [];
     private var airDrop = HashMap.HashMap<Principal, Nat>(1, Principal.equal, Principal.hash);
 
+    private stable var disCountEntries : [(Principal, Nat)] = [];
+    private var disCount = HashMap.HashMap<Principal, Nat>(1, Principal.equal, Principal.hash);
+
     private stable var listingsEntries : [(TokenIndex, Listings)] = [];
     private var listings = HashMap.HashMap<TokenIndex, Listings>(1, Types.TokenIndex.equal, Types.TokenIndex.hash);
 
@@ -101,7 +107,9 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     private stable var availableEntries : [(TokenIndex, Bool)] = [];
     private var availableMint = HashMap.HashMap<TokenIndex, Bool>(1, Types.TokenIndex.equal, Types.TokenIndex.hash); 
 
-    private stable var mintPrice : Balance  = 200_000_000;//example
+    private var nftApprovals = HashMap.HashMap<TokenIndex, Principal>(1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+    // Mapping from owner to operator approvals
+    private var operatorApprovals = HashMap.HashMap<Principal, HashMap.HashMap<Principal, Bool>>(1, Principal.equal, Principal.hash);
 
     system func preupgrade() {
         componentsEntries := Iter.toArray(components.entries());
@@ -113,6 +121,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
         ownersEntries := Iter.toArray(owners.entries());
         availableEntries := Iter.toArray(availableMint.entries());
         airDropEntries := Iter.toArray(airDrop.entries());
+        disCountEntries := Iter.toArray(disCount.entries());
     };
 
     system func postupgrade() {
@@ -124,7 +133,9 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
         tokens := HashMap.fromIter<TokenIndex, NFTMetaData>(tokensEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
         components := HashMap.fromIter<TokenIndex, Component>(componentsEntries.vals(), 1, Types.TokenIndex.equal, Types.TokenIndex.hash);
         airDrop := HashMap.fromIter<Principal, Nat>(airDropEntries.vals(), 1, Principal.equal, Principal.hash);
+        disCount := HashMap.fromIter<Principal, Nat>(disCountEntries.vals(), 1, Principal.equal, Principal.hash);
 
+        disCountEntries := [];
         airDropEntries := [];
         tokensEntries := [];
         componentsEntries := [];
@@ -327,7 +338,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     /*
     airdrop interface, accroding to your nft project logic
     */
-    public shared(msg) func cliamAirdrop() : async AirDropResponse {
+    public shared(msg) func claimAirdrop() : async AirDropResponse {
         let remain = switch(airDrop.get(msg.caller)){
             case (?a){a};
             case _ {return #err(#NotInAirDropListOrAlreadyCliam);};
@@ -361,7 +372,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
         return #ok(info);
     };
 
-
+    //upload airdrop list 
     public shared(msg) func uploadAirDropList(airDropList: [AirDropStruct]) : async Bool {
         assert(msg.caller == owner);
         for(value in airDropList.vals()){
@@ -384,6 +395,57 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     public shared(msg) func deleteAirDrop(user: Principal) : async Bool {
         assert(msg.caller == owner);
         airDrop.delete(user);
+        return true;
+    };
+
+    //upload discount user, each discount only can use once
+    public shared(msg) func uploadDisCountList(disCountList: [DisCountStruct]) : async Bool {
+        assert(msg.caller == owner);
+        for(value in disCountList.vals()){
+            disCount.put(value.user, value.disCount);
+        };
+        return true;
+    };
+
+    public shared(msg) func clearDisCount() : async Bool {
+        assert(msg.caller == owner);
+        disCount := HashMap.HashMap<Principal, Nat>(0, Principal.equal, Principal.hash);
+        return true;
+    };
+
+    public shared(msg) func setOpenTime(newTime: Time.Time) : async Bool {
+        assert(msg.caller == owner);
+        openTime := newTime;
+        return true;
+    };
+
+    public query func getOpenTime() : async Time.Time {
+        openTime
+    };
+
+    public shared(msg) func approve(approve: Principal, tokenIndex: TokenIndex): async Bool{
+        let ow = switch(_ownerOf(tokenIndex)){
+            case(?o){o};
+            case _ {return false;};
+        };
+        if(ow != msg.caller){return false;};
+        nftApprovals.put(tokenIndex, approve);
+        return true;
+    };
+
+    public shared(msg) func setApprovalForAll(operatored: Principal, approved: Bool): async Bool{
+        assert(msg.caller != operatored);
+        switch(operatorApprovals.get(msg.caller)){
+            case(?op){
+                op.put(operatored, approved);
+                operatorApprovals.put(msg.caller, op);
+            };
+            case _ {
+                var temp = HashMap.HashMap<Principal, Bool>(1, Principal.equal, Principal.hash);
+                temp.put(operatored, approved);
+                operatorApprovals.put(msg.caller, temp);
+            };
+        };
         return true;
     };
 
@@ -424,17 +486,26 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     */
     public shared(msg) func mint(amount: Nat) : async MintResponse {
         assert(amount > 0);
+        let now: Time.Time = Time.now();
+        if( now < openTime ) { return #err(#NotOpen); };
         if(mintAccount >= supply){ return #err(#SoldOut); };
         if(mintAccount + amount > supply){ return #err(#NotEnoughToMint); };
+
+        let dis = switch(disCount.get(msg.caller)){
+            case (?d){d};
+            case _ {100};
+        };
 
         let tokenIndexArr = randomNfts(amount, msg.caller);
         if(tokenIndexArr.size() == 0){ return #err(#SoldOut); };
 
         let totalPrice = mintPrice * tokenIndexArr.size();
+        let payment = Nat.div(Nat.mul(totalPrice, dis), 100);
+
         var tos: [Principal] = [];
         var values: [Nat] = [];
 
-        let mintFee:Nat = Nat.div(Nat.mul(totalPrice, mintfeeRatio), 100);
+        let mintFee:Nat = Nat.div(Nat.mul(payment, mintfeeRatio), 100);
         let value = totalPrice - mintFee;
 
         tos := Array.append(tos, [cccMintfeeTo]);
@@ -481,6 +552,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
             case _ {};
         };
 
+        disCount.delete(msg.caller);
         return #ok(idArr);
     };
 
@@ -489,7 +561,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
         if(Option.isSome(listings.get(tokenIndex))){
             return #err(#ListOnMarketPlace);
         };
-        if( not _checkOwner(tokenIndex, from) ){
+        if( not _isApprovedOrOwner(from, msg.caller, tokenIndex) ){
             return #err(#NotOwnerOrNotApprove);
         };
         if(from == to){
@@ -757,6 +829,50 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
         Iter.toArray(availableMint.entries())
     };
 
+    public shared query(msg) func getAllNFTOwnerShip() : async [(TokenIndex, Principal)] {
+        assert(msg.caller == owner);
+        Iter.toArray(owners.entries())
+    };
+
+    public query func getAllNFTHolder(user: Principal) : async [Principal] {
+        var ret: [Principal] = [];
+        for((k,v) in owners.entries()){
+            if(_checkPrincipal(v)){
+                ret := Array.append(ret, [v] );
+            };
+        };
+        return ret;
+    };
+
+    public query func getAirDropRemain(user: Principal) : async Nat {
+        switch(airDrop.get(user)){
+            case (?n){n};
+            case _ {0};
+        }
+    };
+
+    public shared query(msg) func getAirDropLeft() : async [(Principal, Nat)] {
+        assert(msg.caller == owner);
+        Iter.toArray(airDrop.entries())
+    };
+
+    public shared query(msg) func getDisCountLeft() : async [(Principal, Nat)] {
+        assert(msg.caller == owner);
+        Iter.toArray(disCount.entries())
+    };
+
+    public query func getDisCountByUser(user: Principal) : async Nat {
+        var dis:Nat = 100;
+        switch(disCount.get(user)){
+            case (?d){dis := d;};
+            case _ {};
+        };
+        dis
+    };
+
+    private func _checkPrincipal(id: Principal) : Bool {
+        Principal.toText(id).size() > 60
+    };
 
     private func genRandomNum( user : Principal) : Nat {
         
@@ -802,6 +918,7 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
     private func _transfer(from: Principal, to: Principal, tokenIndex: TokenIndex) {
         balances.put( from, _balanceOf(from) - 1 );
         balances.put( to, _balanceOf(to) + 1 );
+        nftApprovals.delete(tokenIndex);
         owners.put(tokenIndex, to);
     };
 
@@ -841,5 +958,35 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
             };
             case _ {false};
         }
+    };
+
+    private func _checkApprove(tokenIndex: TokenIndex, approved: Principal) : Bool {
+        switch(nftApprovals.get(tokenIndex)){
+            case (?o){
+                if(o == approved){
+                    true
+                }else{
+                    false
+                }
+            };
+            case _ {false};
+        }
+    };
+
+    private func _checkApprovedForAll(owner: Principal, operatored: Principal) : Bool {
+        switch(operatorApprovals.get(owner)){
+            case (?a){
+                switch(a.get(operatored)){
+                    case (?b){b};
+                    case _ {false};
+                }
+            };
+            case _ {false};
+        }
+    };
+
+    private func _isApprovedOrOwner(from: Principal, spender: Principal, tokenIndex: TokenIndex) : Bool {
+        _checkOwner(tokenIndex, from) and (_checkOwner(tokenIndex, spender) or 
+        _checkApprove(tokenIndex, spender) or _checkApprovedForAll(from, spender))
     };
 }
