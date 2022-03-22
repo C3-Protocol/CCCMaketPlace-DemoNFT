@@ -688,6 +688,9 @@ shared(msg)  actor class NFT (owner_: Principal, royaltyfeeto_: Principal, cccMi
         if(msg.caller == orderInfo.seller){
             return #err(#NotAllowBuySelf);
         };
+        if(buyRequest.price < orderInfo.price){
+            return #err(#Other);
+        };
         
         if(not _checkOwner(buyRequest.tokenIndex, orderInfo.seller)){
             listings.delete(buyRequest.tokenIndex);

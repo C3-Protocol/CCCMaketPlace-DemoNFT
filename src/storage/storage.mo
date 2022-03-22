@@ -18,6 +18,7 @@ import Cycles "mo:base/ExperimentalCycles";
 
 shared(msg) actor class Storage(_owner: Principal) {
     type OpRecord = Types.OpRecord;
+    type SaleRecord = Types.SaleRecord;
     type Operation = Types.Operation;
     type TokenIndex = Types.TokenIndex;
     type NftPhotoStoreCID = Types.CanvasIdentity;
@@ -34,6 +35,8 @@ shared(msg) actor class Storage(_owner: Principal) {
 
     private stable var nftFavoriteEntries : [(TokenIndex, Nat)] = [];
     private var nftFavorite = HashMap.HashMap<TokenIndex, Nat>(1, Types.TokenIndex.equal, Types.TokenIndex.hash);
+
+    private var allSaleReocrd: List.List<SaleRecord> = List.nil<SaleRecord>();
 
     system func preupgrade() {
         userFavoriteEntries := Iter.toArray(userFavorite.entries());
@@ -100,6 +103,16 @@ shared(msg) actor class Storage(_owner: Principal) {
     ) : async () {
         assert( msg.caller == wrapNftCID);
         _addRecord(index, op, from, to, price, timestamp);
+        if(op == #Transfer){
+            let saleRecord : SaleRecord = {
+                tokenIndex = index;
+                from = from;
+                to = to;
+                price = price;
+                timestamp = timestamp;
+            };
+            allSaleReocrd := List.push(saleRecord, allSaleReocrd);
+        }
     };
 
     public shared(msg) func addBuyRecord(index: TokenIndex, from: ?Principal, to: ?Principal, 
@@ -108,6 +121,14 @@ shared(msg) actor class Storage(_owner: Principal) {
         assert( msg.caller == wrapNftCID);
         _addRecord(index, #Sale, from, to, price, timestamp);
         _addRecord(index, #Transfer, from, to, null, timestamp);
+        let saleRecord : SaleRecord = {
+            tokenIndex = index;
+            from = from;
+            to = to;
+            price = price;
+            timestamp = timestamp;
+        };
+        allSaleReocrd := List.push(saleRecord, allSaleReocrd);
     };
 
     public shared(msg) func setFavorite(user: Principal, info: NftPhotoStoreCID) : async () {
@@ -148,6 +169,27 @@ shared(msg) actor class Storage(_owner: Principal) {
         if(ret){
             _subNftFavoriteNum(info.index);
         };
+    };
+
+    public query func getAllSaleRecord(): async [SaleRecord] {
+        List.toArray(allSaleReocrd)
+    };
+
+    public query func getSaleRecordByAccount(user: Principal): async [SaleRecord] {
+        var ret: List.List<SaleRecord> = List.nil<SaleRecord>();
+        let saleArr: [SaleRecord] = List.toArray(allSaleReocrd);
+        for(val in saleArr.vals()){
+            switch(val.from, val.to){
+                case (?f, _) {
+                    if(f == user){ ret := List.push(val, ret); };
+                };
+                case (_, ?t){
+                    if(t == user){ ret := List.push(val, ret); };
+                };
+                case (_, _) {};
+            };
+        };
+        List.toArray(ret)
     };
 
     public query func getFavorite(user: Principal): async [NftPhotoStoreCID] {

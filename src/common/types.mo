@@ -30,6 +30,7 @@ module Types = {
 
   public type BuyRequest = {
     tokenIndex: TokenIndex;
+    price:     Nat;
     feeTo:      Principal;
     marketFeeRatio: Nat;
   };
@@ -109,6 +110,14 @@ module Types = {
 
   public type OpRecord = {
     op: Operation;
+    price: ?Nat;
+    from: ?Principal;
+    to: ?Principal;
+    timestamp: Time.Time;
+  };
+
+  public type SaleRecord = {
+    tokenIndex: TokenIndex;
     price: ?Nat;
     from: ?Principal;
     to: ?Principal;
